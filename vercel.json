@@ -1,0 +1,97 @@
+{
+  "framework": null,
+  "installCommand": "npm install --omit=optional",
+  "buildCommand": "echo No build step required",
+  "outputDirectory": ".",
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/admin",
+      "destination": "/admin.html"
+    },
+    {
+      "source": "/admin/",
+      "destination": "/admin.html"
+    },
+    {
+      "source": "/service",
+      "destination": "/service.html"
+    },
+    {
+      "source": "/service/",
+      "destination": "/service.html"
+    },
+    {
+      "source": "/agency",
+      "destination": "/agency-introduction-pages/index.html"
+    },
+    {
+      "source": "/agency/",
+      "destination": "/agency-introduction-pages/index.html"
+    },
+    {
+      "source": "/agency/:path*",
+      "destination": "/agency-introduction-pages/:path*"
+    },
+    {
+      "source": "/announcements",
+      "destination": "/announcements/index.html"
+    },
+    {
+      "source": "/announcements/",
+      "destination": "/announcements/index.html"
+    },
+    {
+      "source": "/wanted",
+      "destination": "/wanted/index.html"
+    },
+    {
+      "source": "/wanted/",
+      "destination": "/wanted/index.html"
+    },
+    {
+      "source": "/forensics",
+      "destination": "/forensics/index.html"
+    },
+    {
+      "source": "/forensics/",
+      "destination": "/forensics/index.html"
+    },
+    {
+      "source": "/public-info",
+      "destination": "/public-info/index.html"
+    },
+    {
+      "source": "/public-info/",
+      "destination": "/public-info/index.html"
+    },
+    {
+      "source": "/public-services",
+      "destination": "/public-services/index.html"
+    },
+    {
+      "source": "/public-services/",
+      "destination": "/public-services/index.html"
+    },
+    {
+      "source": "/sitemap",
+      "destination": "/sitemap/index.html"
+    },
+    {
+      "source": "/sitemap/",
+      "destination": "/sitemap/index.html"
+    },
+    {
+      "source": "/related-links",
+      "destination": "/related-links/index.html"
+    },
+    {
+      "source": "/related-links/",
+      "destination": "/related-links/index.html"
+    },
+    {
+      "source": "/service/:path*",
+      "destination": "/public/:path*"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "cib-online-report-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Online report customer service prototype for CIB public service flow.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js && node --check public/video-session.js",
+    "test": "node --test tests/video-session.test.cjs tests/app-workflow.test.cjs"
+  },
+  "dependencies": {
+    "agora-token": "^2.0.5",
+    "@supabase/supabase-js": "^2.56.0",
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "multer": "^2.0.2",
+    "socket.io": "^4.7.5"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.2.1"
+  }
+}
