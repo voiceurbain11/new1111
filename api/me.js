@@ -38,16 +38,16 @@ module.exports = async function handler(req, res) {
 
     if (action === 'citizen-start') {
       const citizenName = String(query.get('citizenName') || '').trim();
-      const caseNumber = normalizeCaseNumber(query.get('caseNumber') || query.get('nationalId'));
-      if (citizenName.length < 2 || caseNumber.length < 3) return json(res, 400, { error: '請輸入姓名與案號' });
-      const found = await client.from('service_cases').select(CASE_COLUMNS).eq('citizen_name', citizenName).eq('case_number', caseNumber).order('created_at', { ascending: false });
+      const certificateNumber = normalizeCertificateNumber(query.get('certificateNumber') || query.get('nationalId'));
+      if (citizenName.length < 2 || certificateNumber.length < 3) return json(res, 400, { error: '請輸入姓名與身分證號' });
+      const found = await client.from('service_cases').select(CASE_COLUMNS).eq('citizen_name', citizenName).eq('certificate_number', certificateNumber).order('created_at', { ascending: false });
       if (found.error) return json(res, 500, { error: found.error.message || '查詢案件失敗' });
-      const cases = found.data || [];
-      const caseRow = cases[0] || null;
-      if (!caseRow) return json(res, 404, { error: '查無資料' });
-      if (caseRow.status !== 'open') return json(res, 403, { error: '案件尚未開通' });
-      res.setHeader('Set-Cookie', createSessionCookie({ caseId: caseRow.id, citizenName, caseNumber }));
-      return json(res, 200, { status: 'open', case: publicCase(caseRow), cases: cases.map(publicCase) });
+      const openCases = (found.data || []).filter((item) => item.status === 'open');
+      const caseRow = openCases[0] || null;
+      if (!found.data?.length) return json(res, 404, { error: '查無資料' });
+      if (!caseRow) return json(res, 403, { error: '案件尚未開通' });
+      res.setHeader('Set-Cookie', createSessionCookie({ caseId: caseRow.id, citizenName, certificateNumber }));
+      return json(res, 200, { status: 'open', case: publicCase(caseRow), cases: openCases.map(publicCase) });
     }
 
     if (action === 'cases') {
@@ -88,7 +88,10 @@ module.exports = async function handler(req, res) {
       const result = await client.from('service_cases').select(CASE_COLUMNS).eq('id', caseId).maybeSingle();
       if (result.error) return json(res, 500, { error: result.error.message || '查詢案件失敗' });
       if (!result.data) return json(res, 404, { error: '找不到案件' });
-      if (!session.user && session.caseId !== caseId) return json(res, 403, { error: '無權存取此案件' });
+      const ownsByCertificate = session.citizenName && session.certificateNumber &&
+        result.data.citizen_name === session.citizenName &&
+        normalizeCertificateNumber(result.data.certificate_number) === normalizeCertificateNumber(session.certificateNumber);
+      if (!session.user && session.caseId !== caseId && !ownsByCertificate) return json(res, 403, { error: '無權存取此案件' });
       if (result.data.status === 'closed') return json(res, 400, { error: '案件已結案' });
       const updated = await client.from('service_cases').update({ interview_status: query.get('active') === '1' ? 'active' : 'idle' }).eq('id', caseId).select(CASE_COLUMNS).single();
       if (updated.error) return json(res, 500, { error: updated.error.message || '更新筆錄狀態失敗' });
@@ -102,7 +105,12 @@ module.exports = async function handler(req, res) {
       if (result.error) return json(res, 500, { error: result.error.message || '讀取案件失敗' });
       caseRow = result.data;
     }
-    if (!session.user && session.citizenName && session.caseNumber) {
+    if (!session.user && session.citizenName && session.certificateNumber) {
+      const result = await client.from('service_cases').select(CASE_COLUMNS).eq('citizen_name', session.citizenName).eq('certificate_number', session.certificateNumber).eq('status', 'open').order('created_at', { ascending: false });
+      if (result.error) return json(res, 500, { error: result.error.message || '讀取案件失敗' });
+      cases = result.data || [];
+      caseRow = cases.find((item) => item.id === session.caseId) || cases[0] || caseRow;
+    } else if (!session.user && session.citizenName && session.caseNumber) {
       const result = await client.from('service_cases').select(CASE_COLUMNS).eq('citizen_name', session.citizenName).eq('case_number', session.caseNumber).order('created_at', { ascending: false });
       if (result.error) return json(res, 500, { error: result.error.message || '讀取案件失敗' });
       cases = result.data || [];

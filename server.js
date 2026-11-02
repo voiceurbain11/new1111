@@ -10,6 +10,8 @@ const Database = require('better-sqlite3');
 const { Server } = require('socket.io');
 const { RtcRole, RtcTokenBuilder } = require('agora-token');
 const { appendPriorityMessage, priorityEntriesFromInput, publicPriorityApplication } = require('./api/_lib/service');
+const { readImageDataUrl } = require('./api/_lib/site-content');
+const { ensureSiteTables, mutateNews, readSite, saveContact, saveFooterQr, savePosters } = require('./api/_lib/site-sqlite');
 
 const app = express();
 const server = http.createServer(app);
@@ -199,6 +201,7 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS wanted_persons_national_id_idx ON wanted_persons(national_id);
 `);
+ensureSiteTables(db);
 const casesTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cases'").get()?.sql || '';
 if (/unique\s*\(\s*citizen_name\s*,\s*national_id\s*\)/i.test(casesTableSql)) {
   db.exec('PRAGMA foreign_keys = OFF');
@@ -312,6 +315,10 @@ app.get(['/admin', '/admin/', '/admin.html'], (_req, res) => {
   res.sendFile(path.join(ROOT, 'admin.html'));
 });
 
+app.get(['/content', '/content/', '/content.html'], (_req, res) => {
+  res.sendFile(path.join(ROOT, 'content.html'));
+});
+
 app.use('/service', express.static(PUBLIC_DIR));
 
 app.get('/', (_req, res) => {
@@ -320,6 +327,81 @@ app.get('/', (_req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+function contentAdmin(req, res) {
+  if (!req.session.user) {
+    res.status(401).json({ error: '請先登入' });
+    return false;
+  }
+  if (req.session.user.role !== 'admin') {
+    res.status(403).json({ error: '需要管理員權限' });
+    return false;
+  }
+  return true;
+}
+
+app.get('/api/site-phones', (_req, res) => {
+  const contact = readSite(db).contact;
+  const payload = { servicePhone: contact.servicePhone, reportPhones: contact.reportPhones };
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(`window.__SITE_PHONES=${JSON.stringify(payload).replace(/</g, '\\u003c')};`);
+});
+
+app.get('/api/site-content', (_req, res) => {
+  res.json(readSite(db));
+});
+
+app.put('/api/site-content', (req, res) => {
+  if (!contentAdmin(req, res)) return;
+  const result = saveContact(db, req.body || {});
+  res.status(result.status).json(result.payload || { error: result.error });
+});
+
+app.post('/api/site-footer', (req, res) => {
+  if (!contentAdmin(req, res)) return;
+  const body = req.body || {};
+  if (body.action === 'image') {
+    const image = readImageDataUrl(body.dataUrl);
+    if (image.error) return res.status(400).json({ error: image.error });
+    const filename = `site-footer/${id()}.${image.extension}`;
+    fs.mkdirSync(path.join(UPLOAD_DIR, 'site-footer'), { recursive: true });
+    fs.writeFileSync(path.join(UPLOAD_DIR, filename), image.buffer);
+    return res.json({ url: `/uploads/${filename}` });
+  }
+  const result = saveFooterQr(db, body);
+  res.status(result.status).json(result.payload || { error: result.error });
+});
+
+app.post('/api/site-posters', (req, res) => {
+  if (!contentAdmin(req, res)) return;
+  const body = req.body || {};
+  if (body.action === 'image') {
+    const image = readImageDataUrl(body.dataUrl);
+    if (image.error) return res.status(400).json({ error: image.error });
+    const filename = `site-posters/${id()}.${image.extension}`;
+    fs.mkdirSync(path.join(UPLOAD_DIR, 'site-posters'), { recursive: true });
+    fs.writeFileSync(path.join(UPLOAD_DIR, filename), image.buffer);
+    return res.json({ url: `/uploads/${filename}` });
+  }
+  const result = savePosters(db, body);
+  res.status(result.status).json(result.payload || { error: result.error });
+});
+
+app.post('/api/site-news', (req, res) => {
+  if (!contentAdmin(req, res)) return;
+  const body = req.body || {};
+  if (body.action === 'image') {
+    const image = readImageDataUrl(body.dataUrl);
+    if (image.error) return res.status(400).json({ error: image.error });
+    const filename = `site-news/${id()}.${image.extension}`;
+    fs.mkdirSync(path.join(UPLOAD_DIR, 'site-news'), { recursive: true });
+    fs.writeFileSync(path.join(UPLOAD_DIR, filename), image.buffer);
+    return res.json({ url: `/uploads/${filename}` });
+  }
+  const result = mutateNews(db, body);
+  res.status(result.status).json(result.payload || { error: result.error });
 });
 
 const storage = multer.diskStorage({
@@ -471,13 +553,17 @@ function requireAdmin(req, res, next) {
 }
 
 function requireCitizenCase(req, res, next) {
-  if (!req.session.caseId) return res.status(401).json({ error: '請先以姓名與案號進入服務' });
+  if (!req.session.caseId) return res.status(401).json({ error: '請先以姓名與身分證號進入服務' });
   next();
 }
 
 function canAccessCase(req, caseId) {
+  if (req.session.user) return true;
   if (req.session.caseId === caseId) return true;
-  return Boolean(req.session.user);
+  if (!req.session.citizenName || !req.session.certificateNumber) return false;
+  const row = db.prepare('SELECT id FROM cases WHERE id = ? AND citizen_name = ? AND certificate_number = ?')
+    .get(caseId, req.session.citizenName, req.session.certificateNumber);
+  return Boolean(row);
 }
 
 function certificateCases(citizenName, certificateNumber) {
@@ -507,36 +593,41 @@ app.get('/api/me', (req, res) => {
   const caseRow = req.session.caseId
     ? db.prepare('SELECT * FROM cases WHERE id = ?').get(req.session.caseId)
     : null;
-  const cases = !req.session.user && req.session.citizenName && req.session.caseNumber
-    ? db.prepare('SELECT * FROM cases WHERE citizen_name = ? AND case_number = ? ORDER BY created_at DESC')
-      .all(req.session.citizenName, req.session.caseNumber)
-    : [];
+  const cases = !req.session.user && req.session.citizenName && req.session.certificateNumber
+    ? certificateCases(req.session.citizenName, req.session.certificateNumber).filter((row) => row.status === 'open')
+    : !req.session.user && req.session.citizenName && req.session.caseNumber
+      ? db.prepare('SELECT * FROM cases WHERE citizen_name = ? AND case_number = ? ORDER BY created_at DESC')
+        .all(req.session.citizenName, req.session.caseNumber)
+      : [];
   res.json({ user: currentUser(req), case: publicCase(caseRow || cases[0]), cases: cases.map(publicCase) });
 });
 
 app.post('/api/citizen/start', (req, res) => {
   const citizenName = String(req.body.citizenName || '').trim();
-  const caseNumber = normalizeCaseNumber(req.body.caseNumber || req.body.nationalId);
-  if (citizenName.length < 2 || caseNumber.length < 3) {
-    return res.status(400).json({ error: '請輸入姓名與案號' });
+  const certificateNumber = normalizeCertificateNumber(req.body.certificateNumber || req.body.nationalId);
+  if (citizenName.length < 2 || certificateNumber.length < 3) {
+    return res.status(400).json({ error: '請輸入姓名與身分證號' });
   }
 
-  const caseRow = db.prepare('SELECT * FROM cases WHERE citizen_name = ? AND case_number = ?')
-    .get(citizenName, caseNumber);
-  if (!caseRow) return res.status(404).json({ error: '查無資料' });
+  const matched = certificateCases(citizenName, certificateNumber);
+  const openCases = matched.filter((row) => row.status === 'open');
+  const caseRow = openCases[0] || null;
+  if (!matched.length) return res.status(404).json({ error: '查無資料' });
 
   req.session.user = null;
-  if (caseRow.status !== 'open') {
+  if (!caseRow) {
     req.session.caseId = null;
     req.session.citizenName = null;
     req.session.caseNumber = null;
-    return res.json({ status: 'pending', case: publicCase(caseRow) });
+    req.session.certificateNumber = null;
+    return res.status(403).json({ error: '案件尚未開通' });
   }
 
   req.session.caseId = caseRow.id;
   req.session.citizenName = citizenName;
-  req.session.caseNumber = caseNumber;
-  res.json({ status: 'open', case: publicCase(caseRow) });
+  req.session.caseNumber = null;
+  req.session.certificateNumber = certificateNumber;
+  res.json({ status: 'open', case: publicCase(caseRow), cases: openCases.map(publicCase) });
 });
 
 function queryCitizenCases(req, res) {
@@ -686,6 +777,7 @@ app.post('/api/staff/login', (req, res) => {
   req.session.caseId = null;
   req.session.citizenName = null;
   req.session.caseNumber = null;
+  req.session.certificateNumber = null;
   res.json({ user: req.session.user });
 });
 

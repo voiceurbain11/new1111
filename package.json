@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js && node --check public/app.js && node --check public/video-session.js",
-    "test": "node --test tests/video-session.test.cjs tests/app-workflow.test.cjs"
+    "test": "node --test tests/video-session.test.cjs tests/app-workflow.test.cjs tests/site-content.test.cjs"
   },
   "dependencies": {
     "agora-token": "^2.0.5",

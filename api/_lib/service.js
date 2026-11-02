@@ -375,7 +375,10 @@ async function requireCaseAccess(req, res, client, caseId) {
     result.data.citizen_name === session.citizenName && result.data.national_id === session.nationalId;
   const citizenOwnsCaseByNumber = session.citizenName && session.caseNumber &&
     result.data.citizen_name === session.citizenName && result.data.case_number === session.caseNumber;
-  if (session.user || session.caseId === caseId || citizenOwnsCase || citizenOwnsCaseByNumber) return { session, caseRow: result.data };
+  const citizenOwnsByCertificate = session.citizenName && session.certificateNumber &&
+    result.data.citizen_name === session.citizenName &&
+    normalizeCertificateNumber(result.data.certificate_number) === normalizeCertificateNumber(session.certificateNumber);
+  if (session.user || session.caseId === caseId || citizenOwnsCase || citizenOwnsCaseByNumber || citizenOwnsByCertificate) return { session, caseRow: result.data };
   json(res, 403, { error: '無權存取此案件' });
   return null;
 }
